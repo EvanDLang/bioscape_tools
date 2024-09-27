@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "bioscape_shape_test",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "id": 1 }, "geometry": { "type": "MultiPolygon", "coordinates": [ [ [ [ 18.772028527373116, -32.950228558929254 ], [ 18.79544613628714, -32.958252072851622 ], [ 18.786402650654026, -32.967954142584077 ], [ 18.763000081743616, -32.961478910748596 ], [ 18.772028527373116, -32.950228558929254 ] ] ] ] } }
+]
+}

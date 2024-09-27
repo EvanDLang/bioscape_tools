@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bioscape_tools"
+version = "0.1.0"
+description = "Bioscape Tools contains code to make interacting with Bioscape data easier for the user"
+readme = "README.rst"
+authors = [
+  {name = "Evan Lang", email = "evan.d.lang@nasa.gov"}
+]
+maintainers = [
+  {name = "Evan Lang", email = "evan.d.lang@nasa.gov"}
+]
+classifiers = [
+
+]
+license = {text = "Apache Software License 2.0"}
+dependencies = [
+  
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage",  # testing
+    "pytest",  # testing
+]
+
+[project.urls]
+
+bugs = "https://github.com/evandlang/bioscape_tools/issues"
+homepage = "https://github.com/evandlang/bioscape_tools"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"*" = ["*.*"]
+
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "./src"
+]
+
+
+
