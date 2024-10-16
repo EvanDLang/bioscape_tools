@@ -2,6 +2,8 @@ import pytest
 from bioscape_tools import Bioscape, Emit
 import xarray as xr
 import os
+import geopandas as gpd
+
 geojson = 'tests/test.geojson'
 
 @pytest.fixture
@@ -21,12 +23,11 @@ def emit_files(emit_instance):
     return emit_instance.get_overlap(geojson)
 
 def test_bioscape_get_overlap(bioscape_files):
-    assert len(bioscape_files) > 0 
-    assert isinstance(bioscape_files[0], str)  
+    assert isinstance(bioscape_files, gpd.GeoDataFrame)
+    assert len(bioscape_files) == 6  
 
-def test_bioscape(bioscape_instance, bioscape_files):
-
-    flightline, subsection = bioscape_files[1].split('_')
+def test_bioscape_crop_flightline(bioscape_instance, bioscape_files):
+    flightline, subsection = bioscape_files.iloc[2]['flightline'], bioscape_files.iloc[2]['subsection']
     result = bioscape_instance.crop_flightline(flightline, subsection, geojson)
     assert isinstance(result, xr.Dataset)
 

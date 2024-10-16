@@ -18,7 +18,11 @@ classifiers = [
 ]
 license = {text = "Apache Software License 2.0"}
 dependencies = [
-  
+    "earthaccess",
+    "xarray",
+    "geopandas",
+    "numpy",
+    "matplotlib"
 ]
 
 [project.optional-dependencies]

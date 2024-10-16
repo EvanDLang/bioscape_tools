@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import netrc
 import os
+import json
+import getpass
+import geopandas as gpd
+
 
 def _process_http_error(http_err, response):
     print(
@@ -34,11 +38,18 @@ class DataAccess(ABC):
         try:
             if data is not None:
                 data = {k:v for k, v in data.items() if v is not None}
-            
-            with open(geojson, 'rb') as f:
-                response = self.session.post(self.URLOVERLAP, data, files={"geojson": f})
-                response.raise_for_status()
-                return response  
+      
+            with open(geojson) as f:
+                geojson_data = json.load(f)
+                
+            if data is None:
+                data = geojson_data
+            else:
+                data.update({'geojson':geojson_data})
+
+            response = self.session.post(self.URLOVERLAP, json=data)
+            response.raise_for_status()
+            return response  
         except HTTPError as http_err:
            _process_http_error(http_err, response)
     
@@ -49,14 +60,16 @@ class DataAccess(ABC):
             
             data = {k:v for k, v in data.items() if v is not None}
             
-            with open(geojson, 'rb') as f:                
-                response = self.session.post(
-                    self.URLCROP,
-                    data=data,
-                    files={"geojson": f}
-                    )
-                response.raise_for_status()
+            with open(geojson) as f:
+                geojson_data = json.load(f)
+
+            data.update({"geojson": geojson_data})
             
+            response = self.session.post(
+                self.URLCROP,
+                json=data,
+                )
+            response.raise_for_status() 
             if output_path is not None:
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
@@ -76,10 +89,10 @@ class DataAccess(ABC):
         plt.axis('off')
         plt.show()
         
-
-
 class Bioscape(DataAccess):
     def __init__(self, persist=False):
+        # self.token_url = "https://crop.bioscape.io/token/"
+        self.token_url = "http://0.0.0.0:8000/token/"
         self.access_token = None
         try:
             self._load_credentials()
@@ -94,8 +107,10 @@ class Bioscape(DataAccess):
         session = requests.session()
         session.headers.update({"Authorization": f'Bearer {self.access_token}'})
         super().__init__(
-            overlap_url = "https://crop.bioscape.io/overlap/", 
-            cropping_url = "https://crop.bioscape.io/crop/",
+            # overlap_url = "https://crop.bioscape.io/overlap/", 
+            # cropping_url = "https://crop.bioscape.io/crop/",
+            overlap_url = "http://0.0.0.0:8000/overlap/", 
+            cropping_url = "http://0.0.0.0:8000/crop/",
             session=session
             )
     def _load_credentials(self):
@@ -133,18 +148,17 @@ class Bioscape(DataAccess):
 
     def _login(self, persist=False):
         username = input("Enter your SMCE username: ")
-        password = input("Enter your SMCE password: ")
+        password = getpass.getpass("Enter your SMCE password: ")
         
         self.access_token = self._get_access_token(username, password)
         
         if persist and self.access_token is not None:
             self._save_credentials(username, password)
       
-
     def _get_access_token(self, username, password):
         try:
             response = requests.post(
-                "https://crop.bioscape.io/token/",
+                self.token_url,
                 data={"username": username, "password": password},
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
             )
@@ -156,7 +170,9 @@ class Bioscape(DataAccess):
     
     def get_overlap(self, geojson):
         response = super()._get_overlap(geojson)
-        return response.json().get('files', [])
+        gdf = gpd.GeoDataFrame.from_features(response.json()["features"], crs=4326)
+        gdf[['flightline','subsection']] = gdf['flightline'].str.split('_',expand=True)
+        return gdf
     
     # remove write file and just set output_path to none. if output file is none, pass output.nc else write file and pass provided outpath
     def __crop_data(self, flightline, subsection, geojson, output_path=None, mask_and_scale=True):
@@ -182,8 +198,10 @@ class Emit(DataAccess):
         session = requests.session()
         # session.headers.update({"Authorization": f'Bearer {self.access_token}'})
         super().__init__(
-            overlap_url = "https://crop.bioscape.io/overlapemit/", 
-            cropping_url = "https://crop.bioscape.io/cropemit/",
+            # overlap_url = "https://crop.bioscape.io/overlapemit/", 
+            # cropping_url = "https://crop.bioscape.io/cropemit/",
+            overlap_url = "http://0.0.0.0:8000/overlapemit/", 
+            cropping_url = "http://0.0.0.0:8000/cropemit/",
             session = session
             )
 
