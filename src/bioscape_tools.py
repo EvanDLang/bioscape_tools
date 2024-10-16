@@ -91,8 +91,8 @@ class DataAccess(ABC):
         
 class Bioscape(DataAccess):
     def __init__(self, persist=False):
-        # self.token_url = "https://crop.bioscape.io/token/"
-        self.token_url = "http://0.0.0.0:8000/token/"
+        self.token_url = "https://crop.bioscape.io/token/"
+
         self.access_token = None
         try:
             self._load_credentials()
@@ -107,10 +107,8 @@ class Bioscape(DataAccess):
         session = requests.session()
         session.headers.update({"Authorization": f'Bearer {self.access_token}'})
         super().__init__(
-            # overlap_url = "https://crop.bioscape.io/overlap/", 
-            # cropping_url = "https://crop.bioscape.io/crop/",
-            overlap_url = "http://0.0.0.0:8000/overlap/", 
-            cropping_url = "http://0.0.0.0:8000/crop/",
+            overlap_url = "https://crop.bioscape.io/overlap/", 
+            cropping_url = "https://crop.bioscape.io/crop/",
             session=session
             )
     def _load_credentials(self):
@@ -133,7 +131,7 @@ class Bioscape(DataAccess):
         netrc_path = os.path.expanduser("~/.netrc")
         credentials_exist = False
 
-        # Check if the .netrc file exists and if it contains the credentials
+ 
         if os.path.exists(netrc_path):
             with open(netrc_path, 'r') as f:
                 for line in f:
@@ -141,7 +139,6 @@ class Bioscape(DataAccess):
                         credentials_exist = True
                         break
 
-        # If credentials do not exist, append them to the .netrc file
         if not credentials_exist:
             with open(netrc_path, 'a') as f:
                 f.write(f"machine bioscape\nlogin {username}\npassword {password}\n")
@@ -196,12 +193,9 @@ class Emit(DataAccess):
     def __init__(self, **kwargs):
         self.access_token = self._get_access_token(**kwargs)['access_token']
         session = requests.session()
-        # session.headers.update({"Authorization": f'Bearer {self.access_token}'})
         super().__init__(
-            # overlap_url = "https://crop.bioscape.io/overlapemit/", 
-            # cropping_url = "https://crop.bioscape.io/cropemit/",
-            overlap_url = "http://0.0.0.0:8000/overlapemit/", 
-            cropping_url = "http://0.0.0.0:8000/cropemit/",
+            overlap_url = "https://crop.bioscape.io/overlapemit/", 
+            cropping_url = "https://crop.bioscape.io/cropemit/",
             session = session
             )
 
