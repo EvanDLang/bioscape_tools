@@ -27,12 +27,12 @@ def test_bioscape_get_overlap(bioscape_files):
     assert len(bioscape_files) == 6  
 
 def test_bioscape_crop_flightline(bioscape_instance, bioscape_files):
-    flightline, subsection = bioscape_files.iloc[2]['flightline'], bioscape_files.iloc[2]['subsection']
+    flightline, subsection = bioscape_files.iloc[0]['flightline'], bioscape_files.iloc[0]['subsection']
     result = bioscape_instance.crop_flightline(flightline, subsection, geojson)
     assert isinstance(result, xr.Dataset)
 
 def test_bioscape_crop_flightline_to_file(bioscape_instance, bioscape_files):
-    flightline, subsection = bioscape_files[1].split('_')
+    flightline, subsection = bioscape_files.iloc[0]['flightline'], bioscape_files.iloc[0]['subsection']
     bioscape_instance.crop_flightline(flightline, subsection, geojson, 'test.nc')
     assert os.path.exists('test.nc')
     os.unlink('test.nc')

@@ -13,6 +13,7 @@ import os
 import json
 import getpass
 import geopandas as gpd
+import sys
 
 
 def _process_http_error(http_err, response):
@@ -96,8 +97,16 @@ class Bioscape(DataAccess):
         self.access_token = None
         try:
             self._load_credentials()
-        except:
-            pass
+ 
+        except requests.exceptions.HTTPError as e:
+            if  e.response.status_code == 503:
+                print("HTTP error occurred: 503 Server Error: Service Temporarily Unavailable")
+                sys.exit(1)
+            else:
+                print(f"An error occurred: {e}")
+        except Exception as e:
+            print(e) 
+        
         if self.access_token is None:
             self._login(persist)
             
