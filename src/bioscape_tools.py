@@ -1,5 +1,4 @@
-
-from abc import ABC, abstractmethod
+# from abc import ABC, abstractmethod
 import requests
 from requests.exceptions import HTTPError
 import earthaccess
@@ -14,6 +13,7 @@ import json
 import getpass
 import geopandas as gpd
 import sys
+import time
 
 
 def _process_http_error(http_err, response):
@@ -25,74 +25,9 @@ def _process_http_error(http_err, response):
             f"Response Text: {response.text}"
         )
     
-class DataAccess(ABC):
-    def __init__(self, overlap_url, cropping_url, session):
-        self.URLCROP = cropping_url
-        self.URLOVERLAP = overlap_url
-        self.session = session
-        
-    @abstractmethod
-    def _get_access_token():
-        pass    
-    
-    def _get_overlap(self, geojson, data=None):
-        try:
-            if data is not None:
-                data = {k:v for k, v in data.items() if v is not None}
-      
-            with open(geojson) as f:
-                geojson_data = json.load(f)
-                
-            if data is None:
-                data = geojson_data
-            else:
-                data.update({'geojson':geojson_data})
-
-            response = self.session.post(self.URLOVERLAP, json=data)
-            response.raise_for_status()
-            return response  
-        except HTTPError as http_err:
-           _process_http_error(http_err, response)
-    
-    def _crop_data(self, geojson, data, output_path, mask_and_scale=True):
-        try:
-            if output_path is not None:
-                assert '.nc' in output_path, "Output path must have a .nc file extension!"
-            
-            data = {k:v for k, v in data.items() if v is not None}
-            
-            with open(geojson) as f:
-                geojson_data = json.load(f)
-
-            data.update({"geojson": geojson_data})
-            
-            response = self.session.post(
-                self.URLCROP,
-                json=data,
-                )
-            response.raise_for_status() 
-            if output_path is not None:
-                with open(output_path, 'wb') as f:
-                    f.write(response.content)
-            else:
-                return xr.open_dataset(io.BytesIO(response.content),decode_coords='all', mask_and_scale=mask_and_scale, engine='h5netcdf')   
-        except HTTPError as http_err:
-           _process_http_error(http_err, response)
-    
-    def _plot_rgb(self, data, band_name):
-        rgb_image = np.stack([
-            data.sel(**{band_name: 650}, method='nearest').reflectance.values,
-            data.sel(**{band_name: 560}, method='nearest').reflectance.values,
-            data.sel(**{band_name: 470}, method='nearest').reflectance.values,
-        ], axis=-1)
-
-        plt.imshow(rgb_image)
-        plt.axis('off')
-        plt.show()
-        
-class Bioscape(DataAccess):
-    def __init__(self, persist=False):
-        self.token_url = "https://crop.bioscape.io/token/"
+class DataAccess():
+    def __init__(self, overlap_url, cropping_url, persist):
+        self.token_url = "https://crop.bioscape.io/api/token/"
 
         self.access_token = None
         try:
@@ -101,6 +36,7 @@ class Bioscape(DataAccess):
         except requests.exceptions.HTTPError as e:
             if  e.response.status_code == 503:
                 print("HTTP error occurred: 503 Server Error: Service Temporarily Unavailable")
+                print('here')
                 sys.exit(1)
             else:
                 print(f"An error occurred: {e}")
@@ -115,11 +51,13 @@ class Bioscape(DataAccess):
         
         session = requests.session()
         session.headers.update({"Authorization": f'Bearer {self.access_token}'})
-        super().__init__(
-            overlap_url = "https://crop.bioscape.io/overlap/", 
-            cropping_url = "https://crop.bioscape.io/crop/",
-            session=session
-            )
+
+        self.URLCROP = cropping_url
+        self.URLOVERLAP = overlap_url
+        self.URLSTATUS = "https://crop.bioscape.io/api/status/"
+        self.URLDOWNLOAD = "https://crop.bioscape.io/api/download/"
+        self.session = session
+        
     def _load_credentials(self):
         try:
             netrc_path = os.path.expanduser("~/.netrc")
@@ -134,13 +72,13 @@ class Bioscape(DataAccess):
             else:
                 raise Exception
         except Exception as e:
-            pass
+            raise Exception
 
     def _save_credentials(self, username, password):
         netrc_path = os.path.expanduser("~/.netrc")
         credentials_exist = False
 
- 
+
         if os.path.exists(netrc_path):
             with open(netrc_path, 'r') as f:
                 for line in f:
@@ -172,49 +110,175 @@ class Bioscape(DataAccess):
             return response.json().get('access_token')
         except HTTPError as http_err:
            _process_http_error(http_err, response)
-           return None
+           return None  
     
+    def _get_overlap(self, geojson, data=None):
+        try:
+            if data is not None:
+                data = {k:v for k, v in data.items() if v is not None}
+      
+            with open(geojson) as f:
+                geojson_data = json.load(f)
+                
+            if data is None:
+                data = geojson_data
+            else:
+                data.update({'geojson':geojson_data})
+
+            response = self.session.post(self.URLOVERLAP, json=data)
+            response.raise_for_status()
+            return response  
+        except HTTPError as http_err:
+           _process_http_error(http_err, response)
+    
+    def _submit_cropping_task(self, geojson, data):
+            
+        data = {k:v for k, v in data.items() if v is not None}
+        
+        with open(geojson) as f:
+            geojson_data = json.load(f)
+
+        data.update({"geojson": geojson_data})
+        
+        response = self.session.post(
+            self.URLCROP,
+            json=data,
+            )
+        response.raise_for_status()
+        return response.json()['identifier']
+    
+    def _get_job_status(self, identifier):
+        response = self.session.get(os.path.join(self.URLSTATUS, identifier))
+        return response.json()['status']
+
+    def _download_data(self, identifier, out_path):
+        try:
+            
+            with self.session.get(os.path.join(self.URLDOWNLOAD, identifier), stream=True) as response:
+                response.raise_for_status()
+                with open(out_path, 'wb') as file:
+                    for chunk in response.iter_content(chunk_size=16384):
+                        file.write(chunk)
+        
+        except HTTPError as http_err:
+            _process_http_error(http_err, response)
+        
+    def _load_data(self, identifier, mask_and_scale, engine, verbose=False): 
+        try:
+            with self.session.get(os.path.join(self.URLDOWNLOAD, identifier), stream=True) as response:
+                response.raise_for_status()    
+                
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded_size = 0
+                
+                with io.BytesIO() as byte_stream:
+                    for chunk in response.iter_content(chunk_size=1024 * 32):
+                        byte_stream.write(chunk)
+                        downloaded_size += len(chunk)
+                        total_size_mb = total_size / (1024 * 1024)  
+                        downloaded_size_mb = downloaded_size / (1024 * 1024) 
+                        
+                        if total_size > 0:
+                            progress = (downloaded_size / total_size) * 100
+                            if verbose:
+                                print(f"\rLoading Data: {downloaded_size_mb:.2f}/{total_size_mb:.2f} MB ({progress:.2f}%)", end='')
+
+                    byte_stream.seek(0)
+               
+                    dataset = xr.open_dataset(byte_stream, decode_coords='all', mask_and_scale=mask_and_scale, engine=engine)  
+            
+            return dataset
+        except HTTPError as http_err:
+           _process_http_error(http_err, response)
+    
+    def _plot_rgb(self, data, band_name):
+        rgb_image = np.stack([
+            data.sel(**{band_name: 650}, method='nearest').reflectance.values,
+            data.sel(**{band_name: 560}, method='nearest').reflectance.values,
+            data.sel(**{band_name: 470}, method='nearest').reflectance.values,
+        ], axis=-1)
+
+        plt.imshow(rgb_image)
+        plt.axis('off')
+        plt.show()
+        
+class Bioscape(DataAccess):
+    def __init__(self, persist=False):
+        super().__init__(
+            overlap_url = "https://crop.bioscape.io/api/overlap/", 
+            cropping_url = "https://crop.bioscape.io/api/crop/",
+            persist = persist
+            )
+        
     def get_overlap(self, geojson):
         response = super()._get_overlap(geojson)
         gdf = gpd.GeoDataFrame.from_features(response.json()["features"], crs=4326)
         gdf[['flightline','subsection']] = gdf['flightline'].str.split('_',expand=True)
         return gdf
     
-    # remove write file and just set output_path to none. if output file is none, pass output.nc else write file and pass provided outpath
-    def __crop_data(self, flightline, subsection, geojson, output_path=None, mask_and_scale=True):
-      
-
+    def crop_flightline(self, flightline, subsection, geojson, output_path=None, engine='h5netcdf', mask_and_scale=True, verbose=False):
+        if output_path is not None:
+            if '.nc' not in output_path:
+                raise Exception("Output file path must have a .nc extension!")
+        
         data = {
             "flightline": flightline,
             "subsection": subsection, 
-            "outpath": output_path
             }
         
-        return super()._crop_data(geojson, data, output_path, mask_and_scale)
-    
-    def crop_flightline(self, flightline, subsection, geojson, output_path=None, mask_and_scale=True):
-        return self.__crop_data(flightline, subsection, geojson, output_path, mask_and_scale)
+        identifier = super()._submit_cropping_task(geojson, data) 
+        length_of_status = 0
+
+        while True:
+            time.sleep(3)
+            status = super()._get_job_status(identifier)  
+            
+            if verbose:
+                if len(status) > length_of_status:
+                    length_of_status = len(status) 
+
+                status = status.ljust(length_of_status)
+
+                print(f"\r{status}", end='')
+          
+             
+            if 'Ready' in status or 'Failed' in status:
+                break
+        
+        if 'Ready' in status:
+            if verbose:
+                print()
+            
+            if output_path is not None:
+                super()._download_data(identifier, output_path)
+            else:
+                return super()._load_data(identifier, mask_and_scale, engine, verbose)
+        elif 'Failed' in status:
+            raise Exception(f"{status}")
+        else:
+            raise Exception(f"{status}")
+     
     
     def plot_rgb(data):
         return super()._plot_rgb(data, 'wavelength')
              
 class Emit(DataAccess):
     def __init__(self, **kwargs):
-        self.access_token = self._get_access_token(**kwargs)['access_token']
-        session = requests.session()
+        self.edl_token = self._get_edl_token(**kwargs)['access_token']
+        
         super().__init__(
-            overlap_url = "https://crop.bioscape.io/overlapemit/", 
-            cropping_url = "https://crop.bioscape.io/cropemit/",
-            session = session
+            overlap_url = "https://crop.bioscape.io/api/overlapemit/", 
+            cropping_url = "https://crop.bioscape.io/api/cropemit/",
+            persist = kwargs['persist'] if 'persist' in kwargs else False
             )
 
-    def _get_access_token(self, **kwargs):
+    def _get_edl_token(self, **kwargs):
         earthaccess.login(**kwargs)
         return earthaccess.get_edl_token()
 
     def get_overlap(self, geojson, temporal_range=None, cloud_cover=None):
         data = {
-        "access_token": self.access_token,
+        "access_token": self.edl_token,
         "temporal": temporal_range,
         "cloud_cover": cloud_cover
         }
@@ -224,18 +288,48 @@ class Emit(DataAccess):
             granule.granule_ur = granule['umm']['GranuleUR']
         return granules
     
-    def __crop_data(self, granule_ur, geojson, output_path=None, mask_and_scale=True):
-           
+    def crop_scene(self, granule_ur, geojson, output_path=None ,mask_and_scale=True, engine='scipy', verbose=False):
+        if output_path is not None:
+            if '.nc' not in output_path:
+                raise Exception("Output file path must have a .nc extension!")
+        
         data = {
-            "access_token": self.access_token,
+            "access_token": self.edl_token,
             "granule_ur": granule_ur,
             "outpath": output_path
             }
         
-        return super()._crop_data(geojson, data, output_path, mask_and_scale)
-    
-    def crop_scene(self, granule_ur, geojson, output_path=None,mask_and_scale=True):
-        return self.__crop_data(granule_ur, geojson, output_path, mask_and_scale)
+        identifier = super()._submit_cropping_task(geojson, data) 
+        length_of_status = 0
+
+        while True:
+            time.sleep(3)
+            status = super()._get_job_status(identifier)  
+            
+            if verbose:
+                if len(status) > length_of_status:
+                    length_of_status = len(status) 
+
+                status = status.ljust(length_of_status)
+
+                print(f"\r{status}", end='')
+          
+            if 'Ready' in status or 'Failed' in status:
+                break
+        
+        if 'Ready' in status:
+            if verbose:
+                print()
+            
+            if output_path is not None:
+                super()._download_data(identifier, output_path)
+            else:
+                return super()._load_data(identifier, mask_and_scale, engine, verbose)
+            
+        elif 'Failed' in status: 
+            raise Exception("Cropping Failed. Most likely the AOI contains only No Data values.")
+        else:
+            raise Exception(f"{status}")
     
     def plot_rgb(data):
         return super()._plot_rgb(data, 'wavelengths')
