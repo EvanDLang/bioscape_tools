@@ -14,6 +14,7 @@ import getpass
 import geopandas as gpd
 import sys
 import time
+import s3fs
 
 
 def _process_http_error(http_err, response):
@@ -36,7 +37,6 @@ class DataAccess():
         except requests.exceptions.HTTPError as e:
             if  e.response.status_code == 503:
                 print("HTTP error occurred: 503 Server Error: Service Temporarily Unavailable")
-                print('here')
                 sys.exit(1)
             else:
                 print(f"An error occurred: {e}")
@@ -57,38 +57,67 @@ class DataAccess():
         self.URLSTATUS = "https://crop.bioscape.io/api/status/"
         self.URLDOWNLOAD = "https://crop.bioscape.io/api/download/"
         self.session = session
-        
+
     def _load_credentials(self):
         try:
             netrc_path = os.path.expanduser("~/.netrc")
             username = None
             password = None
+
             if not os.path.exists(netrc_path):
                 raise FileNotFoundError("No .netrc file found.")
 
-            username, _, password = netrc.netrc(netrc_path).authenticators("bioscape")
-            if username is not None and password is not None:
+            with open(netrc_path, 'r') as f:
+                lines = f.readlines()
+
+            credentials_exist = False
+
+            for i, line in enumerate(lines):
+                if "machine bioscape" in line:
+                    login_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                    password_line = lines[i + 2].strip() if i + 2 < len(lines) else ""
+
+                    if login_line.startswith("login"):
+                        username = login_line.split(" ")[1]
+                    if password_line.startswith("password"):
+                        password = " ".join(password_line.split(" ")[1:]) 
+
+                    if username and password:
+                        credentials_exist = True
+                        break
+
+            if credentials_exist and username and password:
                 self.access_token = self._get_access_token(username, password)
             else:
-                raise Exception
+                raise Exception("Credentials not found or invalid.")
+
         except Exception as e:
-            raise Exception
+            raise Exception(f"An error occurred while loading credentials: {e}")
 
     def _save_credentials(self, username, password):
         netrc_path = os.path.expanduser("~/.netrc")
         credentials_exist = False
 
-
         if os.path.exists(netrc_path):
             with open(netrc_path, 'r') as f:
-                for line in f:
-                    if f"machine bioscape" in line and f"login {username}" in next(f, ''):
+                lines = f.readlines()
+
+            for i, line in enumerate(lines):
+                if "machine bioscape" in line:
+                    if i + 1 < len(lines) and f"login {username}" in lines[i + 1]:
+                        lines[i + 2] = f"password {password}\n"
                         credentials_exist = True
                         break
 
-        if not credentials_exist:
-            with open(netrc_path, 'a') as f:
-                f.write(f"machine bioscape\nlogin {username}\npassword {password}\n")
+            if not credentials_exist:
+                    lines.append(f"machine bioscape\n        login {username}\n        password {password}\n")
+
+            with open(netrc_path, 'w') as f:
+                f.writelines(lines)
+
+        else:
+            with open(netrc_path, 'w') as f:
+                f.write(f"machine bioscape\n        login {username}\n        password {password}\n")
 
     def _login(self, persist=False):
         username = input("Enter your SMCE username: ")
@@ -117,9 +146,11 @@ class DataAccess():
             if data is not None:
                 data = {k:v for k, v in data.items() if v is not None}
       
-            with open(geojson) as f:
-                geojson_data = json.load(f)
-                
+            if isinstance(geojson, gpd.GeoDataFrame):
+                geojson_data = json.loads(geojson.to_json())
+            else:
+                geojson_data = json.loads(gpd.read_file(geojson).to_json())
+       
             if data is None:
                 data = geojson_data
             else:
@@ -135,9 +166,11 @@ class DataAccess():
             
         data = {k:v for k, v in data.items() if v is not None}
         
-        with open(geojson) as f:
-            geojson_data = json.load(f)
-
+        if isinstance(geojson, gpd.GeoDataFrame):
+            geojson_data = json.loads(geojson.to_json())
+        else:
+            geojson_data = json.loads(gpd.read_file(geojson).to_json())
+        
         data.update({"geojson": geojson_data})
         
         response = self.session.post(
@@ -151,15 +184,24 @@ class DataAccess():
         response = self.session.get(os.path.join(self.URLSTATUS, identifier))
         return response.json()['status']
 
-    def _download_data(self, identifier, out_path):
+    def _download_data(self, identifier, outpath):
         try:
-            
-            with self.session.get(os.path.join(self.URLDOWNLOAD, identifier), stream=True) as response:
-                response.raise_for_status()
-                with open(out_path, 'wb') as file:
-                    for chunk in response.iter_content(chunk_size=16384):
-                        file.write(chunk)
-        
+            url = os.path.join(self.URLDOWNLOAD, identifier)
+
+            if 's3' in outpath:
+                fs = s3fs.S3FileSystem(anon=False)
+                with fs.open(outpath, 'wb') as s3file:
+                    with self.session.get(url, stream=True) as response:
+                        response.raise_for_status()
+                        for chunk in response.iter_content(chunk_size=16384):
+                            s3file.write(chunk)
+            else:
+                with self.session.get(url, stream=True) as response:
+                    response.raise_for_status()
+                    with open(outpath, 'wb') as file:
+                        for chunk in response.iter_content(chunk_size=16384):
+                            file.write(chunk)
+
         except HTTPError as http_err:
             _process_http_error(http_err, response)
         
@@ -241,7 +283,6 @@ class Bioscape(DataAccess):
 
                 print(f"\r{status}", end='')
           
-             
             if 'Ready' in status or 'Failed' in status:
                 break
         
