@@ -40,6 +40,7 @@ def test_bioscape_crop_flightline(bioscape_instance, bioscape_files):
     flightline, subsection = bioscape_files.iloc[0]['flightline'], bioscape_files.iloc[0]['subsection']
     result = bioscape_instance.crop_flightline(flightline, subsection, geojson)
     assert isinstance(result, xr.Dataset)
+    result.reflectance.compute()
 
 def test_bioscape_crop_flightline_to_file(bioscape_instance, bioscape_files):
     flightline, subsection = bioscape_files.iloc[0]['flightline'], bioscape_files.iloc[0]['subsection']
@@ -61,6 +62,7 @@ def test_emit_get_overlap(emit_files):
 def test_emit_crop_scene(emit_instance, emit_files):
     result = emit_instance.crop_scene(emit_files[0].granule_ur, geojson)
     assert isinstance(result, xr.Dataset)
+    result.reflectance.compute()
     
 def test_emit_crop_scene_to_file(emit_instance, emit_files):
     emit_instance.crop_scene(emit_files[0].granule_ur, geojson, output_path='test.nc')

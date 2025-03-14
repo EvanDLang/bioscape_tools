@@ -227,7 +227,7 @@ class DataAccess():
 
                     byte_stream.seek(0)
                
-                    dataset = xr.open_dataset(byte_stream, decode_coords='all', mask_and_scale=mask_and_scale, engine=engine)  
+                    dataset = xr.load_dataset(byte_stream, decode_coords='all', mask_and_scale=mask_and_scale, engine=engine)  
             
             return dataset
         except HTTPError as http_err:
