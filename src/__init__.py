@@ -2,4 +2,4 @@
 
 __author__ = """Evan Lang"""
 __email__ = 'evan.d.lang@nasa.gov'
-__version__ = '1.0.0'
+__version__ = '1.0.1'
